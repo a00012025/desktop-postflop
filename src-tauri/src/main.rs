@@ -18,6 +18,13 @@ use std::sync::Mutex;
 use sysinfo::{System, SystemExt};
 
 fn main() {
+    // Initialize logger
+    env_logger::Builder::from_default_env()
+        .filter_level(log::LevelFilter::Info)
+        .init();
+
+    log::info!("Desktop Postflop solver starting...");
+
     tauri::Builder::default()
         .manage(Mutex::new(RangeManager::default()))
         .manage(Mutex::new(default_action_tree()))

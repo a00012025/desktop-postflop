@@ -5,20 +5,25 @@ use serde::Serialize;
 use std::sync::Mutex;
 
 #[inline]
-fn decode_action(action: &str) -> Action {
+fn decode_action(action: &str) -> Result<Action, String> {
     match action {
-        "F" => Action::Fold,
-        "X" => Action::Check,
-        "C" => Action::Call,
+        "F" => Ok(Action::Fold),
+        "X" => Ok(Action::Check),
+        "C" => Ok(Action::Call),
         _ => {
             let mut chars = action.chars();
-            let first_char = chars.next().unwrap();
-            let amount = chars.as_str().parse().unwrap();
+            let first_char = chars.next().ok_or_else(|| {
+                format!("Invalid action string: empty action")
+            })?;
+            let amount_str = chars.as_str();
+            let amount = amount_str.parse().map_err(|e| {
+                format!("Invalid action amount '{}': {}", amount_str, e)
+            })?;
             match first_char {
-                'B' => Action::Bet(amount),
-                'R' => Action::Raise(amount),
-                'A' => Action::AllIn(amount),
-                _ => unreachable!(),
+                'B' => Ok(Action::Bet(amount)),
+                'R' => Ok(Action::Raise(amount)),
+                'A' => Ok(Action::AllIn(amount)),
+                _ => Err(format!("Invalid action type '{}'", first_char)),
             }
         }
     }
@@ -95,19 +100,104 @@ pub fn game_init(
     added_lines: String,
     removed_lines: String,
 ) -> Option<String> {
+    log::info!("game_init called with board length: {}", board.len());
+
     let (turn, river, state) = match board.len() {
         3 => (NOT_DEALT, NOT_DEALT, BoardState::Flop),
         4 => (board[3], NOT_DEALT, BoardState::Turn),
         5 => (board[3], board[4], BoardState::River),
-        _ => return Some("Invalid board length".to_string()),
+        _ => {
+            log::error!("Invalid board length: {}", board.len());
+            return Some("Invalid board length".to_string());
+        }
     };
 
-    let ranges = &range_state.lock().unwrap().0;
+    let ranges = match range_state.lock() {
+        Ok(r) => r,
+        Err(e) => {
+            log::error!("Failed to lock range_state: {}", e);
+            return Some("Failed to access range data".to_string());
+        }
+    };
+
+    let range_slice = match ranges.0.get(..2) {
+        Some(s) => s,
+        None => {
+            log::error!("Range data has insufficient elements");
+            return Some("Invalid range data".to_string());
+        }
+    };
+
+    let range_array: [Range; 2] = match range_slice.try_into() {
+        Ok(arr) => arr,
+        Err(_) => {
+            log::error!("Failed to convert range slice to array");
+            return Some("Invalid range data format".to_string());
+        }
+    };
+
+    let flop_array: [u8; 3] = match board[..3].try_into() {
+        Ok(arr) => arr,
+        Err(_) => {
+            log::error!("Failed to convert flop cards to array");
+            return Some("Invalid flop card data".to_string());
+        }
+    };
+
     let card_config = CardConfig {
-        range: ranges[..2].try_into().unwrap(),
-        flop: board[..3].try_into().unwrap(),
+        range: range_array,
+        flop: flop_array,
         turn,
         river,
+    };
+
+    // Parse bet sizes with proper error handling
+    let oop_flop_bet_sizes = match BetSizeOptions::try_from((oop_flop_bet.as_str(), oop_flop_raise.as_str())) {
+        Ok(sizes) => sizes,
+        Err(e) => {
+            log::error!("Invalid OOP flop bet sizes: '{}', '{}' - Error: {}", oop_flop_bet, oop_flop_raise, e);
+            return Some(format!("Invalid OOP flop bet sizes: {}", e));
+        }
+    };
+
+    let ip_flop_bet_sizes = match BetSizeOptions::try_from((ip_flop_bet.as_str(), ip_flop_raise.as_str())) {
+        Ok(sizes) => sizes,
+        Err(e) => {
+            log::error!("Invalid IP flop bet sizes: '{}', '{}' - Error: {}", ip_flop_bet, ip_flop_raise, e);
+            return Some(format!("Invalid IP flop bet sizes: {}", e));
+        }
+    };
+
+    let oop_turn_bet_sizes = match BetSizeOptions::try_from((oop_turn_bet.as_str(), oop_turn_raise.as_str())) {
+        Ok(sizes) => sizes,
+        Err(e) => {
+            log::error!("Invalid OOP turn bet sizes: '{}', '{}' - Error: {}", oop_turn_bet, oop_turn_raise, e);
+            return Some(format!("Invalid OOP turn bet sizes: {}", e));
+        }
+    };
+
+    let ip_turn_bet_sizes = match BetSizeOptions::try_from((ip_turn_bet.as_str(), ip_turn_raise.as_str())) {
+        Ok(sizes) => sizes,
+        Err(e) => {
+            log::error!("Invalid IP turn bet sizes: '{}', '{}' - Error: {}", ip_turn_bet, ip_turn_raise, e);
+            return Some(format!("Invalid IP turn bet sizes: {}", e));
+        }
+    };
+
+    let oop_river_bet_sizes = match BetSizeOptions::try_from((oop_river_bet.as_str(), oop_river_raise.as_str())) {
+        Ok(sizes) => sizes,
+        Err(e) => {
+            log::error!("Invalid OOP river bet sizes: '{}', '{}' - Error: {}", oop_river_bet, oop_river_raise, e);
+            return Some(format!("Invalid OOP river bet sizes: {}", e));
+        }
+    };
+
+    let ip_river_bet_sizes = match BetSizeOptions::try_from((ip_river_bet.as_str(), ip_river_raise.as_str())) {
+        Ok(sizes) => sizes,
+        Err(e) => {
+            log::error!("Invalid IP river bet sizes: '{}', '{}' - Error: {}", ip_river_bet, ip_river_raise, e);
+            return Some(format!("Invalid IP river bet sizes: {}", e));
+        }
     };
 
     let tree_config = TreeConfig {
@@ -116,18 +206,9 @@ pub fn game_init(
         effective_stack,
         rake_rate,
         rake_cap,
-        flop_bet_sizes: [
-            BetSizeOptions::try_from((oop_flop_bet.as_str(), oop_flop_raise.as_str())).unwrap(),
-            BetSizeOptions::try_from((ip_flop_bet.as_str(), ip_flop_raise.as_str())).unwrap(),
-        ],
-        turn_bet_sizes: [
-            BetSizeOptions::try_from((oop_turn_bet.as_str(), oop_turn_raise.as_str())).unwrap(),
-            BetSizeOptions::try_from((ip_turn_bet.as_str(), ip_turn_raise.as_str())).unwrap(),
-        ],
-        river_bet_sizes: [
-            BetSizeOptions::try_from((oop_river_bet.as_str(), oop_river_raise.as_str())).unwrap(),
-            BetSizeOptions::try_from((ip_river_bet.as_str(), ip_river_raise.as_str())).unwrap(),
-        ],
+        flop_bet_sizes: [oop_flop_bet_sizes, ip_flop_bet_sizes],
+        turn_bet_sizes: [oop_turn_bet_sizes, ip_turn_bet_sizes],
+        river_bet_sizes: [oop_river_bet_sizes, ip_river_bet_sizes],
         turn_donk_sizes: match donk_option {
             false => None,
             true => DonkSizeOptions::try_from(oop_turn_donk.as_str()).ok(),
@@ -141,33 +222,68 @@ pub fn game_init(
         merging_threshold,
     };
 
-    let mut action_tree = ActionTree::new(tree_config).unwrap();
+    log::info!("Creating action tree with config");
+    let mut action_tree = match ActionTree::new(tree_config) {
+        Ok(tree) => tree,
+        Err(e) => {
+            log::error!("Failed to create action tree: {}", e);
+            return Some(format!("Failed to create action tree: {}", e));
+        }
+    };
 
     if !added_lines.is_empty() {
         for added_line in added_lines.split(',') {
-            let line = added_line
+            let line: Result<Vec<_>, _> = added_line
                 .split(&['-', '|'][..])
                 .map(decode_action)
-                .collect::<Vec<_>>();
-            if action_tree.add_line(&line).is_err() {
-                return Some("Failed to add line (loaded broken tree?)".to_string());
+                .collect();
+
+            let line = match line {
+                Ok(l) => l,
+                Err(e) => {
+                    log::error!("Failed to decode added line '{}': {}", added_line, e);
+                    return Some(format!("Failed to decode added line: {}", e));
+                }
+            };
+
+            if let Err(e) = action_tree.add_line(&line) {
+                log::error!("Failed to add line '{}': {}", added_line, e);
+                return Some(format!("Failed to add line: {}", e));
             }
         }
     }
 
     if !removed_lines.is_empty() {
         for removed_line in removed_lines.split(',') {
-            let line = removed_line
+            let line: Result<Vec<_>, _> = removed_line
                 .split(&['-', '|'][..])
                 .map(decode_action)
-                .collect::<Vec<_>>();
-            if action_tree.remove_line(&line).is_err() {
-                return Some("Failed to remove line (loaded broken tree?)".to_string());
+                .collect();
+
+            let line = match line {
+                Ok(l) => l,
+                Err(e) => {
+                    log::error!("Failed to decode removed line '{}': {}", removed_line, e);
+                    return Some(format!("Failed to decode removed line: {}", e));
+                }
+            };
+
+            if let Err(e) = action_tree.remove_line(&line) {
+                log::error!("Failed to remove line '{}': {}", removed_line, e);
+                return Some(format!("Failed to remove line: {}", e));
             }
         }
     }
 
-    let mut game = game_state.lock().unwrap();
+    let mut game = match game_state.lock() {
+        Ok(g) => g,
+        Err(e) => {
+            log::error!("Failed to lock game_state: {}", e);
+            return Some("Failed to access game state".to_string());
+        }
+    };
+
+    log::info!("Updating game config");
     game.update_config(card_config, action_tree).err()
 }
 
@@ -199,9 +315,20 @@ pub fn game_memory_usage_bunching(game_state: tauri::State<Mutex<PostFlopGame>>)
 pub fn game_allocate_memory(
     game_state: tauri::State<Mutex<PostFlopGame>>,
     enable_compression: bool,
-) {
-    let mut game = game_state.lock().unwrap();
+) -> Option<String> {
+    log::info!("Allocating memory with compression: {}", enable_compression);
+
+    let mut game = match game_state.lock() {
+        Ok(g) => g,
+        Err(e) => {
+            log::error!("Failed to lock game_state for memory allocation: {}", e);
+            return Some("Failed to access game state".to_string());
+        }
+    };
+
     game.allocate_memory(enable_compression);
+    log::info!("Memory allocation completed successfully");
+    None
 }
 
 #[tauri::command(async)]

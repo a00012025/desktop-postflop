@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(superpowers:systematic-debugging)",
+      "Skill(superpowers:systematic-debugging:*)",
+      "Bash(cat:*)",
+      "Bash(grep:*)",
+      "Bash(wc:*)",
+      "Bash(npm install:*)",
+      "Bash(git fetch:*)",
+      "Bash(npm run test:run:*)",
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$\\(cat <<''EOF''\nfix: Prevent solver crash and add comprehensive error handling\n\nThis commit fixes a critical crash that occurred when running the solver\nwith invalid or improperly formatted bet sizes, and adds robust error\nhandling throughout the application.\n\n## Root Cause\nThe app crashed with SIGSEGV due to:\n1. Invalid bet strings causing panic in `BetSizeOptions::try_from\\(\\)`\n2. Frontend using `convertBetString\\(\\)` which didn''t validate input\n3. Backend `.unwrap\\(\\)` calls causing immediate termination\n4. No error logging to diagnose failures\n\n## Changes Made\n\n### Backend \\(Rust\\)\n- Add `log` and `env_logger` dependencies for diagnostic logging\n- Initialize logger in main.rs with info-level logging\n- Replace ALL `.unwrap\\(\\)` calls in solver.rs with proper error handling\n- Change `decode_action\\(\\)` to return `Result<Action, String>`\n- Change `game_allocate_memory\\(\\)` to return `Option<String>` for errors\n- Add detailed error messages for bet size parsing failures\n- Add logging at critical points \\(game_init, memory allocation, tree creation\\)\n\n### Frontend \\(TypeScript/Vue\\)\n- Replace `convertBetString\\(\\)` with `sanitizeBetString\\(\\)` for validation\n- Add `formatBetString\\(\\)` helper that validates AND formats bet strings\n- Fix bet string formatting to handle ALL special formats \\(a, x, c, r, e\\)\n- Add try-catch blocks around `gameInit\\(\\)` calls\n- Improve error display with context \\(e.g., \"Memory Allocation Error:\"\\)\n- Update `gameAllocateMemory\\(\\)` type signature to handle errors\n\n### Testing\n- Add Vitest testing framework\n- Create comprehensive unit tests \\(61 tests\\) for bet string handling\n- Test all bet sizing formats from specification:\n  - Pot percentages \\(\"50\" → \"50%\"\\)\n  - Multipliers \\(\"2.5x\" for raises\\)\n  - All-in \\(\"a\"\\)\n  - Constants \\(\"100c\", \"20c3r\"\\)\n  - Geometric \\(\"3e\", \"e\", \"2e200\"\\)\n  - Mixed formats\n\n### Files Modified\n- src-tauri/Cargo.toml - Added logging dependencies\n- src-tauri/src/main.rs - Initialize logger\n- src-tauri/src/solver.rs - Error handling for all unwraps\n- src/components/RunSolver.vue - Bet string validation and formatting\n- src/invokes.ts - Updated type signatures\n- package.json - Added Vitest\n- src/utils.test.ts - Comprehensive test suite \\(NEW\\)\n- vitest.config.ts - Test configuration \\(NEW\\)\n\n## Impact\n- ✅ No more silent crashes - users see clear error messages\n- ✅ All bet sizing formats work correctly\n- ✅ Future crashes will show logs in Console.app\n- ✅ 61 passing tests ensure correctness\n- ✅ Robust error handling prevents panics\n\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>\nEOF\n\\)\")",
+      "Bash(npm run format:*)",
+      "Bash(git commit:*)"
+    ]
+  }
+}

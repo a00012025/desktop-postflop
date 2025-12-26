@@ -249,8 +249,10 @@ export const gameMemoryUsageBunching = async (): Promise<number> => {
   return await invoke("game_memory_usage_bunching");
 };
 
-export const gameAllocateMemory = async (enableCompression: boolean) => {
-  await invoke("game_allocate_memory", { enableCompression });
+export const gameAllocateMemory = async (
+  enableCompression: boolean
+): Promise<string | null> => {
+  return await invoke("game_allocate_memory", { enableCompression });
 };
 
 export const gameSetBunching = async (): Promise<string | null> => {

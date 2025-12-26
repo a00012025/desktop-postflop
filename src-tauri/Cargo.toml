@@ -21,6 +21,8 @@ postflop-solver = { git = "https://github.com/b-inary/postflop-solver", features
 rayon = "1.8.0"
 sysinfo = "0.29.10"
 time = "0.3.35"
+log = "0.4"
+env_logger = "0.11"
 
 [features]
 # by default Tauri runs in production mode

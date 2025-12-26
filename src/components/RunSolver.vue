@@ -325,7 +325,7 @@ import {
 } from "../store";
 import {
   MAX_AMOUNT,
-  convertBetString,
+  sanitizeBetString,
   ROOT_LINE_STRING,
   INVALID_LINE_STRING,
   readableLineString,
@@ -556,33 +556,72 @@ const buildTree = async () => {
   isTreeBuilding.value = true;
   treeStatus.value = "Building tree...";
 
-  const errorString = await invokes.gameInit(
-    tmpConfig.board,
-    tmpConfig.startingPot,
-    tmpConfig.effectiveStack,
-    tmpConfig.rakePercent / 100,
-    tmpConfig.rakeCap,
-    tmpConfig.donkOption,
-    convertBetString(tmpConfig.oopFlopBet),
-    convertBetString(tmpConfig.oopFlopRaise),
-    convertBetString(tmpConfig.oopTurnBet),
-    convertBetString(tmpConfig.oopTurnRaise),
-    tmpConfig.donkOption ? convertBetString(tmpConfig.oopTurnDonk) : "",
-    convertBetString(tmpConfig.oopRiverBet),
-    convertBetString(tmpConfig.oopRiverRaise),
-    tmpConfig.donkOption ? convertBetString(tmpConfig.oopRiverDonk) : "",
-    convertBetString(tmpConfig.ipFlopBet),
-    convertBetString(tmpConfig.ipFlopRaise),
-    convertBetString(tmpConfig.ipTurnBet),
-    convertBetString(tmpConfig.ipTurnRaise),
-    convertBetString(tmpConfig.ipRiverBet),
-    convertBetString(tmpConfig.ipRiverRaise),
-    tmpConfig.addAllInThreshold / 100,
-    tmpConfig.forceAllInThreshold / 100,
-    tmpConfig.mergingThreshold / 100,
-    tmpConfig.addedLines,
-    tmpConfig.removedLines
-  );
+  // Helper function to sanitize and format bet strings for backend
+  const formatBetString = (betStr: string, isRaise: boolean): string => {
+    if (betStr === "") return "";
+    const sanitized = sanitizeBetString(betStr, isRaise);
+    if (!sanitized.valid) {
+      throw new Error(sanitized.s);
+    }
+    // Add % suffix to pot-relative bets that don't have special formats
+    // Special formats: a (all-in), x (multiplier), c (constant), r (raise cap), e (geometric)
+    return sanitized.s
+      .split(",")
+      .map((e) => e.trim())
+      .map((e) => {
+        // Check if element contains any special character (not just ends with)
+        if (
+          e === "a" ||
+          e.includes("x") ||
+          e.includes("c") ||
+          e.includes("r") ||
+          e.includes("e")
+        ) {
+          return e;
+        }
+        return e + "%";
+      })
+      .join(", ");
+  };
+
+  let errorString: string | null = null;
+  try {
+    errorString = await invokes.gameInit(
+      tmpConfig.board,
+      tmpConfig.startingPot,
+      tmpConfig.effectiveStack,
+      tmpConfig.rakePercent / 100,
+      tmpConfig.rakeCap,
+      tmpConfig.donkOption,
+      formatBetString(tmpConfig.oopFlopBet, false),
+      formatBetString(tmpConfig.oopFlopRaise, true),
+      formatBetString(tmpConfig.oopTurnBet, false),
+      formatBetString(tmpConfig.oopTurnRaise, true),
+      tmpConfig.donkOption ? formatBetString(tmpConfig.oopTurnDonk, false) : "",
+      formatBetString(tmpConfig.oopRiverBet, false),
+      formatBetString(tmpConfig.oopRiverRaise, true),
+      tmpConfig.donkOption
+        ? formatBetString(tmpConfig.oopRiverDonk, false)
+        : "",
+      formatBetString(tmpConfig.ipFlopBet, false),
+      formatBetString(tmpConfig.ipFlopRaise, true),
+      formatBetString(tmpConfig.ipTurnBet, false),
+      formatBetString(tmpConfig.ipTurnRaise, true),
+      formatBetString(tmpConfig.ipRiverBet, false),
+      formatBetString(tmpConfig.ipRiverRaise, true),
+      tmpConfig.addAllInThreshold / 100,
+      tmpConfig.forceAllInThreshold / 100,
+      tmpConfig.mergingThreshold / 100,
+      tmpConfig.addedLines,
+      tmpConfig.removedLines
+    );
+  } catch (e) {
+    isTreeBuilding.value = false;
+    const errMsg = e instanceof Error ? e.message : String(e);
+    treeStatus.value = "Error: " + errMsg;
+    console.error("Failed to build tree:", e);
+    return;
+  }
 
   if (errorString) {
     isTreeBuilding.value = false;
@@ -635,13 +674,23 @@ const runSolver = async () => {
   startTime = performance.now();
 
   await invokes.setNumThreads(numThreads.value);
-  await invokes.gameAllocateMemory(isCompressionEnabled.value);
+
+  // Allocate memory with error handling
+  const allocError = await invokes.gameAllocateMemory(
+    isCompressionEnabled.value
+  );
+  if (allocError) {
+    solverErrorText.value = "Memory Allocation Error: " + allocError;
+    store.isSolverRunning = false;
+    store.isSolverError = true;
+    return;
+  }
 
   if (store.isBunchingEnabled && store.bunchingFlop.length > 0) {
     currentIteration.value = -2;
     const errorString = await invokes.gameSetBunching();
     if (errorString) {
-      solverErrorText.value = "Error: " + errorString;
+      solverErrorText.value = "Bunching Error: " + errorString;
       store.isSolverRunning = false;
       store.isSolverError = true;
       return;
